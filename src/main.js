@@ -18,7 +18,9 @@ import * as questFx from "../vendor/pixelfx/fx/ui/quest-complete.js";
 import * as confettiFx from "../vendor/pixelfx/fx/ui/confetti.js";
 import * as fogFx from "../vendor/pixelfx/fx/weather/fog.js";
 
-const W = 480, H = 270, N = 25, GAME_TIME = 90;
+const N = 25, GAME_TIME = 90;
+// the game's pixel resolution follows the screen's shape: at least 400 x 225 game pixels, each a whole number of device pixels
+let W = 480, H = 270;
 const KID_SPEED = 3.6, KNOCK_TIME = 0.7, POWER_TIME = 8;
 const GOLD = ["#2a1405", "#5c3008", "#9a5a0e", "#d48e18", "#f5b92c", "#ffde5e", "#fff4bc", "#ffffff"];
 const PURPLE = ["#12061e", "#2c0d48", "#4f1a7a", "#7a2fb0", "#a85ce0", "#d29bff", "#f0dcff", "#ffffff"];
@@ -28,15 +30,20 @@ const BLUE = ["#04061a", "#0a1050", "#141e8c", "#2234c8", "#3c5af0", "#7c96ff", 
 const RED = ["#1a0508", "#4a0b12", "#8c1420", "#d42a2e", "#ff5a4a", "#ff9a86", "#ffd8cc", "#ffffff"];
 
 const cv = document.getElementById("game"), ctx = cv.getContext("2d");
-cv.width = W;
-cv.height = H;
 function fit() {
-  const s = Math.min(innerWidth / W, innerHeight / H), k = s >= 1 ? Math.floor(s) : s;
-  cv.style.width = W * k + "px";
-  cv.style.height = H * k + "px";
+  const dpr = devicePixelRatio || 1, dw = Math.round(innerWidth * dpr), dh = Math.round(innerHeight * dpr);
+  const k = Math.max(1, Math.floor(Math.min(dw / 400, dh / 225)));
+  W = Math.ceil(dw / k);
+  H = Math.ceil(dh / k);
+  cv.width = W;
+  cv.height = H;
+  cv.style.width = (W * k) / dpr + "px";
+  cv.style.height = (H * k) / dpr + "px";
+  if (sky) makeSky();
+  if (dark) [dark.width, dark.height] = [W, H];
 }
 addEventListener("resize", fit);
-fit();
+let sky, dark, dctx;
 
 const iso = (gx, gy) => [(gx - gy) * 16, (gx + gy) * 8];
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -194,8 +201,8 @@ shared.scared[1].update(1.2);
 shared.fog.update(4);
 
 // the sky: stars and a moon, fixed to the screen
-const sky = S.canvas(W, H);
-{
+function makeSky() {
+  sky = S.canvas(W, H);
   const g = sky.getContext("2d");
   for (let i = 0; i < 140; i++) {
     g.fillStyle = pick(["#3a3458", "#5a5480", "#8a84b0", "#d8d4ff"]);
@@ -272,7 +279,7 @@ function start() {
   reset();
   state = "countdown";
   stateT = 0;
-  screenFx.push({ fx: new FxSprite(countdownFx, { palette: PURPLE, go: GOLD, word: "GO!" }, 30), x: W / 2, y: H / 2 - 10 });
+  screenFx.push({ fx: new FxSprite(countdownFx, { palette: PURPLE, go: GOLD, word: "GO!" }, 30), at: () => [W / 2, H / 2 - 10] });
   sfx.beep(false);
 }
 
@@ -286,8 +293,8 @@ function endGame() {
   }
   knock = null;
   sfx.end();
-  screenFx.push({ fx: new FxSprite(questFx, { text: "TIME UP!" }, 20), x: W / 2, y: 66 });
-  if (newBest && kid.candies > 0) screenFx.push({ fx: new FxSprite(confettiFx, { seed: 3 }, 20), x: W / 2, y: H - 30 });
+  screenFx.push({ fx: new FxSprite(questFx, { text: "TIME UP!" }, 20), at: () => [W / 2, 66 + midY()] });
+  if (newBest && kid.candies > 0) screenFx.push({ fx: new FxSprite(confettiFx, { seed: 3 }, 20), at: () => [W / 2, H - 30] });
 }
 
 // ---------------------------------------------------------------- input
@@ -609,7 +616,10 @@ function update(dt) {
 
 // ---------------------------------------------------------------- drawing
 
-const dark = S.canvas(W, H), dctx = dark.getContext("2d");
+fit();
+makeSky();
+dark = S.canvas(W, H);
+dctx = dark.getContext("2d");
 
 function shadow(sx, sy, w) {
   ctx.fillStyle = "rgba(4,2,12,0.45)";
@@ -806,7 +816,7 @@ function draw(time) {
   }
 
   if (state !== "title") drawHud(time);
-  for (const s of screenFx) s.fx.draw(ctx, s.x, s.y);
+  for (const s of screenFx) s.fx.draw(ctx, ...s.at());
   if (state === "title") drawTitle(time);
   if (state === "over") drawOver(time);
   if (stick.on && state === "play") {
@@ -891,9 +901,19 @@ function drawMinimap(time) {
   }
 }
 
+/** How far to shift the 270-pixel-tall title and results layouts to center them (up a little on short screens). */
+const midY = () => Math.max(-20, Math.round((H - 270) / 2));
+
 function drawTitle(time) {
   ctx.fillStyle = "rgba(6,3,18,0.62)";
   ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(0, midY());
+  drawTitleText(time);
+  ctx.restore();
+}
+
+function drawTitleText(time) {
   const bob = Math.round(Math.sin(time * 2) * 2);
   S.text(ctx, "TRICK OR TREAT", W / 2, 28 + bob, "#ff8a2a", { scale: 4, align: "center" });
   S.text(ctx, "TOWN", W / 2, 64 + bob, "#b46cff", { scale: 3, align: "center" });
@@ -915,6 +935,8 @@ function drawTitle(time) {
 
 function drawOver(time) {
   if (stateT < 1.2) return;
+  ctx.save();
+  ctx.translate(0, midY());
   ctx.fillStyle = "rgba(6,3,18,0.55)";
   ctx.fillRect(0, 96, W, 120);
   const visited = town.houses.filter((h) => h.visited).length;
@@ -922,6 +944,7 @@ function drawOver(time) {
   S.text(ctx, newBest ? "NEW BEST SCORE!" : `BEST: ${best}`, W / 2, 144, newBest ? "#7dff8a" : "#b9a6ff", { scale: 2, align: "center" });
   S.text(ctx, `HOUSES VISITED: ${visited}/${town.houses.length}`, W / 2, 168, "#f0eaff", { align: "center" });
   if (stateT > 1.5 && Math.floor(time * 2) % 2 === 0) S.text(ctx, "PRESS SPACE OR TAP TO PLAY AGAIN", W / 2, 190, "#ffffff", { align: "center" });
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- loop
