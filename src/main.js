@@ -19,10 +19,12 @@ import * as confettiFx from "../vendor/pixelfx/fx/ui/confetti.js";
 import * as fogFx from "../vendor/pixelfx/fx/weather/fog.js";
 
 const W = 480, H = 270, N = 25, GAME_TIME = 90;
-const KID_SPEED = 3.6, KNOCK_TIME = 0.7;
+const KID_SPEED = 3.6, KNOCK_TIME = 0.7, POWER_TIME = 8;
 const GOLD = ["#2a1405", "#5c3008", "#9a5a0e", "#d48e18", "#f5b92c", "#ffde5e", "#fff4bc", "#ffffff"];
 const PURPLE = ["#12061e", "#2c0d48", "#4f1a7a", "#7a2fb0", "#a85ce0", "#d29bff", "#f0dcff", "#ffffff"];
 const GREEN = ["#06140a", "#0d3a18", "#18662a", "#2a9a40", "#56d06a", "#9cf2a6", "#e0ffe4", "#ffffff"];
+const PINK = ["#1e0516", "#4a0c38", "#8a1a68", "#d02a9a", "#ff5ac8", "#ff9ae0", "#ffd8f4", "#ffffff"];
+const BLUE = ["#04061a", "#0a1050", "#141e8c", "#2234c8", "#3c5af0", "#7c96ff", "#c8d4ff"];
 const RED = ["#1a0508", "#4a0b12", "#8c1420", "#d42a2e", "#ff5a4a", "#ff9a86", "#ffd8cc", "#ffffff"];
 
 const cv = document.getElementById("game"), ctx = cv.getContext("2d");
@@ -183,10 +185,12 @@ const shared = {
   ghosts: [new FxSprite(ghostFx, { seed: 1, hover: 10 }), new FxSprite(ghostFx, { seed: 7, hover: 12 })],
   batR: new FxSprite(batFx, { seed: 2 }),
   batL: new FxSprite(batFx, { seed: 5, flip: true }),
+  scared: [new FxSprite(ghostFx, { seed: 1, hover: 10, palette: BLUE }), new FxSprite(ghostFx, { seed: 7, hover: 12, palette: BLUE })],
   fog: new FxSprite(fogFx, { seed: 3 }),
 };
 // let the loops start out of step
 shared.ghosts[1].update(1.2);
+shared.scared[1].update(1.2);
 shared.fog.update(4);
 
 // the sky: stars and a moon, fixed to the screen
@@ -210,13 +214,13 @@ const sky = S.canvas(W, H);
 
 // ---------------------------------------------------------------- game state
 
-let town, kid, ghosts, bats, pickups, oneshots, screenFx, floaters, knock;
+let town, kid, ghosts, bats, pickups, oneshots, screenFx, floaters, knock, superCandy, superTimer, banner;
 let state = "title", stateT = 0, timeLeft = GAME_TIME, batTimer = 6, bonusTimer = 3, lastTick = 0;
 let camX = 0, camY = 0, best = +(localStorage.getItem("tot-best") || 0), newBest = false;
 
 function reset() {
   town = newTown();
-  kid = { x: 12.5, y: 12.5, face: "front", flip: false, walkT: 0, moving: false, invuln: 0, stun: 0, candies: 0, onWeb: false };
+  kid = { x: 12.5, y: 12.5, face: "front", flip: false, walkT: 0, moving: false, invuln: 0, stun: 0, candies: 0, onWeb: false, power: 0 };
   ghosts = [];
   for (let i = 0; i < 2; i++) addGhost();
   bats = [];
@@ -226,6 +230,9 @@ function reset() {
   floaters = [];
   knock = null;
   timeLeft = GAME_TIME;
+  superCandy = null;
+  superTimer = 12;
+  banner = null;
   batTimer = 7;
   bonusTimer = 0;
   for (let i = 0; i < 6; i++) spawnBonusCandy();
@@ -252,8 +259,16 @@ function spawnBonusCandy() {
   pickups.push({ x, y, z: 0, vx: 0, vy: 0, vz: 0, col: randInt(0, 6), age: 1, life: Infinity, bonus: true });
 }
 
+function showBanner(text, color) {
+  banner = { text, color, t: 0 };
+}
+
 function start() {
   initAudio();
+  // on phones and tablets, take over the whole screen
+  const el = document.documentElement;
+  if (matchMedia("(pointer: coarse)").matches && !document.fullscreenElement && el.requestFullscreen)
+    el.requestFullscreen({ navigationUI: "hide" }).then(() => screen.orientation?.lock?.("landscape")).catch(() => {});
   reset();
   state = "countdown";
   stateT = 0;
@@ -409,7 +424,7 @@ function update(dt) {
   }
   const elapsed = GAME_TIME - timeLeft;
 
-  for (const f of [shared.candle, shared.spirit, ...shared.ghosts, shared.batR, shared.batL, shared.fog]) f.update(dt);
+  for (const f of [shared.candle, shared.spirit, ...shared.ghosts, ...shared.scared, shared.batR, shared.batL, shared.fog]) f.update(dt);
 
   // the kid
   kid.invuln = Math.max(0, kid.invuln - dt);
@@ -464,10 +479,16 @@ function update(dt) {
       }
       continue;
     }
-    const d = dist(g.x, g.y, kid.x, kid.y);
-    g.chasing = playing && d < 5 && kid.invuln <= 0;
+    const d = dist(g.x, g.y, kid.x, kid.y), scared = kid.power > 0;
+    g.chasing = playing && !scared && d < 5 && kid.invuln <= 0;
     let sp;
-    if (g.chasing) {
+    if (scared && d < 8) {
+      // run straight away from the kid, staying inside the town
+      const away = d || 1;
+      g.tx = Math.min(N - 0.5, Math.max(0.5, g.x + ((g.x - kid.x) / away) * 3));
+      g.ty = Math.min(N - 0.5, Math.max(0.5, g.y + ((g.y - kid.y) / away) * 3));
+      sp = 2.6;
+    } else if (g.chasing) {
       [g.tx, g.ty] = [kid.x, kid.y];
       sp = 1.9 + (elapsed / GAME_TIME) * 0.9;
     } else {
@@ -477,7 +498,14 @@ function update(dt) {
     const l = dist(g.x, g.y, g.tx, g.ty) || 1, step = Math.min(l, sp * dt);
     g.x += ((g.tx - g.x) / l) * step;
     g.y += ((g.ty - g.y) / l) * step;
-    if (playing && d < 0.55 && kid.invuln <= 0) {
+    if (playing && d < 0.55 && scared) {
+      // caught a scared ghost: it pops and leaves candy behind
+      kid.candies += 2;
+      sfx.gulp();
+      spawnFx(new FxSprite(poofFx, { palette: BLUE, seed: randInt(1, 99) }), g.x, g.y, 10);
+      spawnFx(new FxSprite(numberFx, { text: "+2", palette: GOLD, seed: randInt(1, 99) }, 30), g.x, g.y, 34);
+      g.respawn = 5;
+    } else if (playing && d < 0.55 && kid.invuln <= 0) {
       hitKid(3, "BOO!", PURPLE);
       spawnFx(new FxSprite(poofFx, { seed: randInt(1, 99) }), g.x, g.y, 10);
       g.respawn = 3;
@@ -498,7 +526,7 @@ function update(dt) {
     b.t += dt;
     b.x += b.dx * 4.6 * dt;
     b.y += b.dy * 4.6 * dt;
-    if (playing && kid.invuln <= 0 && dist(b.x, b.y, kid.x, kid.y) < 0.6) hitKid(2, "EEK!", RED);
+    if (playing && kid.invuln <= 0 && kid.power <= 0 && dist(b.x, b.y, kid.x, kid.y) < 0.6) hitKid(2, "EEK!", RED);
   }
   bats = bats.filter((b) => b.t < 6);
 
@@ -533,6 +561,31 @@ function update(dt) {
     }
   }
   pickups = pickups.filter((p) => !p.taken && p.age < p.life);
+
+  // the super lollipop: shows up now and then; grab it and the ghosts run scared
+  kid.power = Math.max(0, kid.power - dt);
+  if (playing && !superCandy && kid.power <= 0 && (superTimer -= dt) <= 0) {
+    const [x, y] = farRoadPoint(5);
+    superCandy = { x, y, age: 0, life: 14 };
+    showBanner("A SUPER LOLLIPOP APPEARED!", "#ff7ad9");
+    sfx.sparkle();
+  }
+  if (superCandy) {
+    superCandy.age += dt;
+    if (playing && dist(superCandy.x, superCandy.y, kid.x, kid.y) < 0.6) {
+      kid.power = POWER_TIME;
+      spawnFx(new FxSprite(burstFx, { palette: PINK, seed: randInt(1, 99) }), superCandy.x, superCandy.y, 6);
+      spawnFx(new FxSprite(numberFx, { text: "SUPER!", palette: PINK, seed: randInt(1, 99) }, 40), kid.x, kid.y, 40);
+      showBanner("GHOSTS ARE SCARED - CATCH THEM!", "#9ab4ff");
+      sfx.power();
+      superCandy = null;
+      superTimer = rand(16, 22);
+    } else if (superCandy.age >= superCandy.life) {
+      superCandy = null;
+      superTimer = rand(6, 10);
+    }
+  }
+  if (banner) banner.t += dt;
 
   for (const o of oneshots) {
     o.fx.update(dt);
@@ -625,9 +678,28 @@ function draw(time) {
       ents.push({ gx: p.x, gy: p.y, draw: (x, y) => ctx.drawImage(S.CANDY[p.col], x - 5, y - 5 - Math.round(p.z) - bob) });
     if (p.bonus) lights.push([p.x, p.y, 10, "candy"]);
   }
+  if (superCandy) {
+    const sc = superCandy, bob = Math.round(Math.sin(time * 5) * 2) + 3;
+    if (sc.life - sc.age > 3 || Math.floor(time * 8) % 2)
+      ents.push({
+        gx: sc.x, gy: sc.y,
+        draw: (x, y) => {
+          ctx.drawImage(S.LOLLIPOP, x - 7, y - 22 - bob);
+          for (let i = 0; i < 4; i++) {
+            const a = time * 3 + (i * Math.PI) / 2, sx = Math.round(x + Math.cos(a) * 11), sy = Math.round(y - 15 - bob + Math.sin(a) * 6);
+            ctx.fillStyle = i % 2 ? "#ffffff" : "#ff9ae0";
+            ctx.fillRect(sx, sy, 1, 1);
+          }
+        },
+      });
+    lights.push([sc.x, sc.y, 34, "candy", 14]);
+  }
+  // scared ghosts turn blue, and flicker back to white as the power runs out
+  const scaredLook = kid.power > 0 && (kid.power > 2 || Math.floor(time * 8) % 2 === 0);
   for (const g of ghosts) {
     if (g.respawn > 0) continue;
-    ents.push({ gx: g.x, gy: g.y, draw: (x, y) => g.fx.draw(ctx, x, y + 6) });
+    const fx = scaredLook ? shared.scared[shared.ghosts.indexOf(g.fx)] : g.fx;
+    ents.push({ gx: g.x, gy: g.y, draw: (x, y) => fx.draw(ctx, x, y + 6) });
     lights.push([g.x, g.y, 30, "ghost", 22]);
   }
   for (const b of bats) ents.push({ gx: b.x, gy: b.y, draw: (x, y) => b.fx.draw(ctx, x, y - 30) });
@@ -649,6 +721,7 @@ function draw(time) {
     },
   });
   lights.push([kid.x, kid.y, 64, "kid", 10]);
+  if (kid.power > 0) lights.push([kid.x, kid.y, 40, "candy", 12]);
 
   // each thing goes after every nearby house it stands in front of
   const hs = town.houses;
@@ -761,6 +834,20 @@ function drawHud(time) {
   panel(6, 6, 74, 24);
   ctx.drawImage(S.CANDY[0], 0, 0, 11, 7, 10, 11, 22, 14);
   S.text(ctx, String(kid.candies), 38, 11, "#ffd34a", { scale: 2 });
+  // how much super power is left
+  if (kid.power > 0) {
+    panel(6, 33, 74, 12);
+    S.text(ctx, "SUPER", 10, 36, "#ff9ae0", { font: "mini" });
+    ctx.fillStyle = "#2a1030";
+    ctx.fillRect(34, 37, 42, 4);
+    ctx.fillStyle = kid.power < 2 && Math.floor(time * 8) % 2 ? "#ffffff" : "#ff5ac8";
+    ctx.fillRect(34, 37, Math.round((42 * kid.power) / POWER_TIME), 4);
+  }
+  if (banner && banner.t < 2.6) {
+    ctx.globalAlpha = Math.min(1, (2.6 - banner.t) * 3);
+    S.text(ctx, banner.text, W / 2, 36, banner.color, { align: "center" });
+    ctx.globalAlpha = 1;
+  }
   // timer
   const t = Math.ceil(timeLeft), mm = Math.floor(t / 60), ss = String(t % 60).padStart(2, "0");
   const urgent = timeLeft <= 10 && state === "play";
@@ -792,6 +879,11 @@ function drawMinimap(time) {
     const [px, py] = mp(g.x, g.y);
     ctx.fillRect(px, py, 2, 2);
   }
+  if (superCandy && Math.floor(time * 6) % 2 === 0) {
+    const [px, py] = mp(superCandy.x, superCandy.y);
+    ctx.fillStyle = "#ff5ac8";
+    ctx.fillRect(px - 1, py - 1, 3, 3);
+  }
   if (Math.floor(time * 4) % 2 === 0) {
     const [px, py] = mp(kid.x, kid.y);
     ctx.fillStyle = "#ffffff";
@@ -810,10 +902,11 @@ function drawTitle(time) {
     ["GREEN WINDOWS AND GREEN FLAMES ARE TRICKS!", "#7dff8a"],
     ["DODGE GHOSTS, BATS AND STICKY WEBS", "#b9c6ff"],
     ["THEY MAKE YOU DROP CANDY - PICK IT BACK UP", "#b9c6ff"],
+    ["GRAB A SUPER LOLLIPOP AND THE GHOSTS RUN AWAY!", "#ff9ae0"],
     [`COLLECT THE MOST CANDY IN ${GAME_TIME} SECONDS`, "#ffd34a"],
     ["MOVE: ARROWS / WASD  (OR DRAG ON TOUCH)", "#9a96b8"],
   ];
-  lines.forEach(([s, c], i) => S.text(ctx, s, W / 2, 104 + i * 14, c, { align: "center" }));
+  lines.forEach(([s, c], i) => S.text(ctx, s, W / 2, 100 + i * 13, c, { align: "center" }));
   if (Math.floor(time * 2) % 2 === 0) S.text(ctx, "PRESS SPACE OR TAP TO START", W / 2, 202, "#ffffff", { scale: 2, align: "center" });
   if (best) S.text(ctx, `BEST: ${best} CANDIES`, W / 2, 230, "#b9a6ff", { align: "center" });
   ctx.drawImage(S.KID.front[Math.floor(time * 4) % 2 + 1], W / 2 - 176, 194 + bob);
@@ -845,4 +938,4 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-if (import.meta.env?.DEV) window.__tot = { kid: () => kid, town: () => town, ghosts: () => ghosts, setTime: (t) => (timeLeft = t) };
+if (import.meta.env?.DEV) window.__tot = { kid: () => kid, town: () => town, ghosts: () => ghosts, setTime: (t) => (timeLeft = t), superIn: (t) => (superTimer = t), superCandy: () => superCandy };

@@ -66,6 +66,16 @@ export const sfx = {
   sticky() {
     tone(90, 0.15, { type: "triangle", vol: 0.08 });
   },
+  sparkle() {
+    [1320, 1760, 1568, 2093].forEach((f, i) => tone(f, 0.1, { type: "triangle", vol: 0.05, delay: i * 0.08 }));
+  },
+  power() {
+    [392, 523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.14, { vol: 0.05, delay: i * 0.05 }));
+  },
+  gulp() {
+    tone(300, 0.18, { type: "square", vol: 0.06, slide: 600 });
+    tone(900, 0.1, { vol: 0.04, delay: 0.12 });
+  },
   end() {
     [784, 659, 523, 392].forEach((f, i) => tone(f, 0.2, { vol: 0.05, delay: i * 0.14 }));
   },

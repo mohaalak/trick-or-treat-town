@@ -8,10 +8,13 @@ An isometric Halloween browser game. A little witch runs door to door collecting
 - **Trick houses** look decorated but have green windows and a green ghost flame. Knocking scares a flaming skull out, you drop 3 candies and get stunned.
 - **Dark houses** have nobody home.
 - **Ghosts** roam the streets and chase you when you get close. **Bats** swoop across. A hit makes you drop candy, which you can pick back up before it fades.
+- **Super lollipop** shows up now and then (pink dot on the minimap). Grab it and for 8 seconds the ghosts turn blue and run away. Catch one for +2 candies. Bats can't hurt you either.
 - **Sticky webs** on the road slow you down.
 - Loose candy on the streets is worth 1 each. You have 90 seconds. Your best score is saved.
 
 Controls: arrow keys or WASD (up + right walks along a road). On touch screens, drag anywhere.
+
+On phones the game goes full screen when you start. Use "Add to Home Screen" to install it as a full-screen app (it has a web app manifest).
 
 ## Run
 

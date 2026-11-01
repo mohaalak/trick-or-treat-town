@@ -191,6 +191,22 @@ function candy(col) {
 }
 export const CANDY = CANDY_COLORS.map(candy);
 
+/** The super candy: a big swirled lollipop. */
+export const LOLLIPOP = sprite(13, 21, (r) => {
+  const bands = ["#ff4a8a", "#ffffff", "#ffd23c", "#ffffff", "#3cc8ff", "#ffffff"];
+  r(6, 12, 1, 9, "#f0e8f8");
+  r(7, 13, 1, 8, "#b8acc8");
+  for (let y = 0; y < 13; y++)
+    for (let x = 0; x < 13; x++) {
+      const dx = x - 6, dy = y - 6, rr = Math.hypot(dx, dy);
+      if (rr > 6.3) continue;
+      const n = Math.floor((Math.atan2(dy, dx) / (Math.PI * 2) + rr / 6) * 6);
+      r(x, y, 1, 1, bands[((n % 6) + 6) % 6]);
+    }
+  r(3, 3, 2, 1, "#ffffff");
+  r(3, 4, 1, 1, "#ffffff");
+});
+
 // ---------------------------------------------------------------- houses
 
 export const WALLS = [
